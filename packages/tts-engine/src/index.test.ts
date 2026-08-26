@@ -21,18 +21,16 @@ describe("TTSModelProvider contract", () => {
       load: () =>
         Promise.resolve({
           generate: (): Promise<AudioResult> =>
-            Promise.reject(
-              new Error("no provider implemented yet (planned: M2)"),
-            ),
+            Promise.reject(new Error("no provider implemented yet (planned: M2)")),
           release: () => Promise.resolve(),
         } satisfies LoadedModel),
     };
 
     expect(fixture.id).toBe("fixture-provider");
     const model = await fixture.load({ onProgress: () => {} });
-    await expect(
-      model.generate({ text: "anything", voiceId: "v1" }),
-    ).rejects.toThrow(/no provider implemented yet/);
+    await expect(model.generate({ text: "anything", voiceId: "v1" })).rejects.toThrow(
+      /no provider implemented yet/,
+    );
     await model.release();
   });
 

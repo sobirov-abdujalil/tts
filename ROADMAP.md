@@ -2,7 +2,7 @@
 
 Milestones are strictly sequential. A milestone is **complete** only when its acceptance criteria pass, tests/lint/typecheck/build are green, docs are updated, and a git checkpoint (commit + tag) exists.
 
-**Current status: M0 complete — documentation & architecture proposal. Next: M1.**
+**Current status: M1 complete — repo & tooling foundation (tag `v0.1-foundation`). Next: M2.**
 
 ---
 
@@ -11,7 +11,7 @@ Architecture proposal, product spec, risk register, decision log. No application
 
 ---
 
-## M1 — Repo & Tooling Foundation → tag `v0.1-foundation`
+## M1 — Repo & Tooling Foundation ✅ → tag `v0.1-foundation`
 Monorepo scaffolding and development infrastructure.
 
 Scope:
@@ -22,10 +22,10 @@ Scope:
 - `.env.example`, editorconfig, README quickstart
 
 Acceptance criteria:
-- [ ] `pnpm install && pnpm dev` serves the app skeleton
-- [ ] CI runs all checks on PR and passes on main
-- [ ] Example unit test per package executes green
-- [ ] Playwright smoke test loads the page headlessly
+- [x] `pnpm install && pnpm dev` serves the app skeleton
+- [x] CI runs all checks on PR and passes on main
+- [x] Example unit test per package executes green
+- [x] Playwright smoke test loads the page headlessly
 
 ## M2 — Local TTS MVP → tag `v0.2-local-tts`
 A working browser-local TTS application (happy path).

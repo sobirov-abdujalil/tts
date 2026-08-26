@@ -4,3 +4,6 @@ coverage/
 playwright-report/
 test-results/
 pnpm-lock.yaml
+
+# Hand-maintained canonical docs — never auto-reformat (avoids diff churn)
+*.md

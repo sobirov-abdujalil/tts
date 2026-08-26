@@ -37,7 +37,7 @@ If you change architecture or behavior in a way these documents describe incorre
 9. **Schema changes only via migrations.** Never hand-edit a production database schema. Every schema change gets a migration file committed with the code that needs it.
 10. **Tests are part of the feature.** A feature without tests is not done. See Testing section below.
 
-## Repository Layout (target)
+## Repository Layout
 
 ```
 apps/
@@ -52,11 +52,11 @@ packages/
 docs/         # (optional) longer-form design docs; root files stay canonical
 ```
 
-Do not create parallel structures (`src/lib/...` at repo root, second `utils` package, etc.).
+Do not create parallel structures (`src/lib/...` at repo root, second `utils` package, etc.). This structure exists since M1.
 
 ## Commands
 
-Once scaffolding exists (Milestone 1), these are canonical. Update this section if tooling changes.
+Canonical since Milestone 1. Update this section if tooling changes.
 
 ```bash
 pnpm install                 # install all workspace deps

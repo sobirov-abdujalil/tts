@@ -2,7 +2,7 @@
 
 A production SaaS platform for AI speech generation. Core differentiator: **on-device inference** — when the user's browser supports it, TTS (Kokoro-82M via ONNX Runtime Web / WebGPU + WASM) runs entirely client-side, so user text never reaches our servers. Premium expressive/cloud generation and billing layer on top.
 
-> Status: **M0 — architecture & documentation phase** (see `ROADMAP.md`). Implementation proceeds milestone-by-milestone.
+> Status: **M1 — repo & tooling foundation complete** (see `ROADMAP.md`). Implementation proceeds milestone-by-milestone. Next up: M2, local TTS MVP.
 
 ## Documentation
 
@@ -26,7 +26,20 @@ A production SaaS platform for AI speech generation. Core differentiator: **on-d
 
 ## Development
 
-Scaffolding lands in M1; commands will be documented in `AGENTS.md` at that point.
+Requires Node.js 22+ and pnpm 10 (activated automatically via the `packageManager` field / corepack).
+
+```bash
+pnpm install          # install all workspace deps
+pnpm dev              # web (:5173) + api (:3001) in watch mode
+pnpm build            # build all workspaces
+pnpm test             # unit/integration tests (Vitest)
+pnpm test:e2e         # build + Playwright headless browser tests
+pnpm lint             # ESLint
+pnpm typecheck        # tsc --noEmit across workspaces
+pnpm format           # Prettier write
+```
+
+PostgreSQL/Redis are not required until M5 (`docker compose up -d` then).
 
 ## License
 

@@ -72,5 +72,17 @@ Append-only log. Each decision: context → decision → consequences. Changing 
 **Decision:** Landing/pricing/legal/docs pages are prerendered static HTML at build time (crawlable, fast); the workspace app shell hydrates client-side. No SSR runtime server initially.
 **Consequences:** Good SEO without running Node rendering infra; revisit if dynamic SEO content is ever needed.
 
+## D-013 — Concrete toolchain versions for the foundation (M1)
+**Date:** 2026-08-26 · **Status:** Accepted
+**Context:** M1 required pinning exact tooling. Notable: TypeScript 7.0.2 (native rewrite) is now stable on npm, but `typescript-eslint@8` declares peer support `<6.1.0` and fails with TS 7; Vite 8 and Tailwind v4 (CSS-first Vite plugin) are stable.
+**Decision:** TypeScript ^5.9 until typescript-eslint ships TS 7 support (revisit then); Vite 8 + `@tailwindcss/vite`; ESLint 9 flat config (+ react-hooks plugin for web), Prettier; Vitest as a single root runner covering all workspaces (per-package Vitest configs deferred until a package needs a custom environment, e.g. jsdom in M4); Playwright at repo root with a Chromium smoke project; Node `engines >=22`, CI runs Node 24. Markdown docs are excluded from Prettier to avoid reformat churn in canonical documents.
+**Consequences:** Mature, mutually compatible versions now; TS 7 upgrade is a tracked follow-up, not silent drift.
+
+## D-014 — Internal packages consumed as TypeScript source
+**Date:** 2026-08-26 · **Status:** Accepted
+**Context:** Workspace packages (`shared`, `tts-engine`, `audio`) are private and consumed only by our own TS-aware tooling (Vite bundler, tsx, Vitest).
+**Decision:** Package `exports` point directly at `src/index.ts`; no per-package build step or generated `.d.ts`. Only `apps/web` produces a build artifact today; API deployment packaging is decided at M8/deploy time.
+**Consequences:** Zero build orchestration between packages; consumers must remain TS-aware (true for all current tooling). Revisit if an external consumer or non-TS pipeline ever needs these packages.
+
 ## Superseded / Rejected
 (none yet)
