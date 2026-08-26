@@ -1,9 +1,9 @@
 {
-  "name": "@tts/tts-engine",
+  "name": "@tts/shared",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Framework-agnostic TTS inference core: provider abstraction, capability detection contracts. No React, no DOM-only APIs.",
+  "description": "Shared types, zod schemas, voice registry, plan configuration. Single source of truth for cross-workspace contracts.",
   "exports": {
     ".": "./src/index.ts"
   },

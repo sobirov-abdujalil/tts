@@ -1,6 +1,7 @@
 {
   "name": "tts-monorepo",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@10.34.5",
   "engines": {
     "node": ">=22"
@@ -20,5 +21,15 @@
       "@tailwindcss/oxide",
       "esbuild"
     ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
   }
 }

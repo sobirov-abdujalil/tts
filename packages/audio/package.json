@@ -1,9 +1,9 @@
 {
-  "name": "@tts/tts-engine",
+  "name": "@tts/audio",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Framework-agnostic TTS inference core: provider abstraction, capability detection contracts. No React, no DOM-only APIs.",
+  "description": "Audio pipeline primitives: WAV encode/decode, text chunking, pause insertion, concatenation. Pure functions, worker-compatible.",
   "exports": {
     ".": "./src/index.ts"
   },
