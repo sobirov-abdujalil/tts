@@ -123,17 +123,94 @@ export interface TTSModelProvider {
   /** Best-effort speed estimate; null when the provider cannot estimate. */
   estimate(ctx: EstimateContext): SpeedEstimate | null;
   load(opts: LoadOptions): Promise<LoadedModel>;
+  /**
+   * Graceful shutdown of any LOADED session (weights + worker), freeing
+   * memory while keeping the provider reusable — the next load() starts
+   * fresh from cache. Optional; callers must tolerate absence.
+   */
+  release?(): Promise<void>;
   isAvailable?(env: InferenceEnvironment): boolean;
   dispose?(): void;
 }
 
 export type { InferenceEnvironment } from "./env.js";
 export { detectInferenceEnvironment, probeWebGPUAdapter } from "./env.js";
+
+// --- Device capability detection (M3) --------------------------------------
+export {
+  detectDeviceProfile,
+  describeDeviceSignature,
+  toDeviceReport,
+} from "./device/deviceProfile.js";
+export type {
+  Capability,
+  Confidence,
+  DeviceProfile,
+  DeviceProfileDeps,
+  NavigatorLike,
+  WebGPUAdapterInfoHint,
+} from "./device/deviceProfile.js";
+
+// --- Runtime selection (WebGPU vs WASM) -------------------------------------
+export { describeActiveRuntime, selectLocalRuntimePlan } from "./runtime/runtimeSelection.js";
+export type { RuntimeSelectionOptions, RuntimeSelectionPlan, WebGPURuntimeState } from "./runtime/runtimeSelection.js";
+
+// --- Real TTS benchmark + local-only cache ----------------------------------
+export { runTtsBenchmark, BENCHMARK_SENTENCE, BENCHMARK_VERSION } from "./benchmark/ttsBenchmark.js";
+export type {
+  BenchmarkConfig,
+  BenchmarkOutcome,
+  FailedBenchmark,
+  RunBenchmarkOptions,
+  SuccessfulBenchmark,
+} from "./benchmark/ttsBenchmark.js";
+export {
+  BENCHMARK_CACHE_KEY,
+  BENCHMARK_MAX_AGE_MS,
+  BenchmarkCache,
+  getDefaultBenchmarkCache,
+  localStorageStore,
+  readStoredDeviceSignature,
+  writeStoredDeviceSignature,
+} from "./benchmark/benchmarkCache.js";
+export type { CachedBenchmark, KeyValueStore } from "./benchmark/benchmarkCache.js";
+
+// --- Model descriptors + recommendation -------------------------------------
+export {
+  KOKORO_Q8_DESCRIPTOR,
+  getModelDescriptor,
+  listModels,
+  registerModel,
+} from "./recommend/models.js";
+export type { ModelDescriptor, ModelMinRequirements, QualityCategory } from "./recommend/models.js";
+export { recommendModels } from "./recommend/recommend.js";
+export type { Recommendation, RecommendInput, UserIntent, UserRequirements } from "./recommend/recommend.js";
+export {
+  estimateGenerationSeconds,
+  formatDuration,
+  formatSpeedMultiplier,
+  isValidRtf,
+} from "./recommend/estimation.js";
+
+// --- Download tracking / corrupted-cache recovery ----------------------------
+export {
+  DOWNLOAD_RECORD_KEY,
+  readDownloadRecord,
+  writeDownloadRecord,
+} from "./cache/downloadTracker.js";
+export type { DownloadRecord } from "./cache/downloadTracker.js";
+
 export { TTS_ERROR_CODES, TtsError, classifyRuntimeError, isTtsError } from "./errors.js";
 export type { TtsErrorCode } from "./errors.js";
 export { getPreferredLocalProvider, getProvider, listProviderIds, registerProvider } from "./registry.js";
 export { KokoroLocalProvider } from "./providers/kokoro/kokoroProvider.js";
-export type { KokoroProviderOptions, WorkerFactory, WorkerHandle } from "./providers/kokoro/kokoroProvider.js";
+export type {
+  BenchmarkEstimateLookup,
+  DownloadRecoveryHooks,
+  KokoroProviderOptions,
+  WorkerFactory,
+  WorkerHandle,
+} from "./providers/kokoro/kokoroProvider.js";
 export {
   KOKORO_DEFAULT_LOAD_CONFIG,
   KOKORO_DTYPE,

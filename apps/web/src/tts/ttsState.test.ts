@@ -133,3 +133,31 @@ describe("ttsUiReducer", () => {
     expect(dismissed.error).toBeNull();
   });
 });
+
+describe("model-released (idle reclamation)", () => {
+  it("resets to idle from ready while keeping finished audio", () => {
+    const state = run(
+      initialTtsUiState,
+      { type: "env-checked", supported: true },
+      { type: "generate-requested", needsModel: true },
+      { type: "model-ready", device: "wasm" },
+      { type: "generation-succeeded", url: "blob:x", bytes: 10 },
+    );
+    const next = ttsUiReducer(state, { type: "model-released" });
+    expect(next.phase).toBe("idle");
+    expect(next.activeDevice).toBeNull();
+    expect(next.audioUrl).toBe("blob:x");
+  });
+
+  it("is ignored mid-generation or mid-load", () => {
+    for (const event of [
+      { type: "generate-requested", needsModel: false },
+      { type: "generate-requested", needsModel: true },
+    ] as const) {
+      const busy = run(initialTtsUiState, { type: "env-checked", supported: true }, event);
+      const next = ttsUiReducer(busy, { type: "model-released" });
+      expect(next.phase).not.toBe("idle");
+      expect(next.phase).toBe(busy.phase);
+    }
+  });
+});

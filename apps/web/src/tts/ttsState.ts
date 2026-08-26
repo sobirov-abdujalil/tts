@@ -39,6 +39,7 @@ export type TtsUiEvent =
   | { type: "generation-succeeded"; url: string; bytes: number }
   | { type: "operation-failed"; code: TtsErrorCode; message: string }
   | { type: "operation-cancelled" }
+  | { type: "model-released" }
   | { type: "error-dismissed" };
 
 export const initialTtsUiState: TtsUiState = {
@@ -101,6 +102,12 @@ export function ttsUiReducer(state: TtsUiState, event: TtsUiEvent): TtsUiState {
     case "operation-cancelled":
       if (state.phase === "unsupported" || state.phase === "checking") return state;
       return { ...state, phase: settledPhase(state), progress: null };
+
+    case "model-released":
+      // Idle memory reclamation: the worker/model are gone, but any finished
+      // audio stays playable and the next generate reloads from cache.
+      if (state.phase === "loading-model" || state.phase === "generating") return state;
+      return { ...state, phase: "idle", activeDevice: null, progress: null };
 
     case "error-dismissed":
       return { ...state, error: null };

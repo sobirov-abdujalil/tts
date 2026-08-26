@@ -93,14 +93,48 @@ The router selects a provider from a registry given: requested features (voice, 
   2. **WASM** (SIMD; multithreaded when `SharedArrayBuffer` available via cross-origin isolation, else single-threaded).
   3. Optional cloud fallback (only for entitled users, explicit UI consent, M7).
 
-  Each candidate device is attempted on its **own freshly spawned worker**: a failed attempt (e.g. WebGPU session creation without an adapter) terminates its worker before the next attempt starts, so poisoned ORT/backend state can never leak into the WASM retry. Verified empirically — retrying inside the same worker after a failed WebGPU load failed identically even with `device: 'wasm'`.
-- **Execution environment: dedicated Web Worker** (not a Service Worker — ORT's dynamic-import backend loading is restricted in SWs). Protocol: `{type:'load'|'generate'|'cancel'|'release', id, payload}` with streamed progress/chunk messages. Cancellation = cooperative abort flag checked between chunks + worker termination as last resort.
-- **Caching:** Transformers.js caches model files in the browser Cache API. We additionally: request `navigator.storage.persist()`, verify cache hits (no re-download on second visit), and handle corrupted cache by versioned cache-busting re-download.
-- **Memory:** one session at a time; explicit release after idle timeout; chunk buffers transferred to main thread via transferable ArrayBuffers then dereferenced.
+  Each candidate device is attempted on its **own freshly spawned worker**: a failed attempt (e.g. WebGPU session creation without an adapter) terminates its worker before the next attempt starts, so poisoned ORT/backend state can never leak into the WASM retry. Verified empirically — retrying inside the same worker after a failed WebGPU load failed identically even with `device: 'wasm'`. Candidate ordering comes from the runtime selection module (§4.3); a WebGPU failure recorded in-session drops GPU from candidates for the rest of the session.
+- **Execution environment: dedicated Web Worker** (not a Service Worker — ORT's dynamic-import backend loading is restricted in SWs). Protocol v2: `{type:'load'|'generate'|'release'|'clear-cache', id, payload}` with streamed progress/chunk messages. Cancellation = cooperative abort flag checked between chunks + worker termination as last resort.
+- **Caching:** Transformers.js caches model files in the browser Cache API. We additionally: verify cache hits (no re-download on second visit; asserted in gated e2e), track successful downloads locally, and recover from corrupted/incomplete caches by evicting the model's cached entries and retrying once (see §4.3). Requesting persistent storage (`navigator.storage.persist()`) remains a tracked follow-up.
+- **Memory:** one session at a time; explicit release on idle (15 min in the app) and after benchmark runs that loaded their own model; chunk buffers transferred to main thread via transferable ArrayBuffers then dereferenced.
 
-### 4.3 Capability detection & benchmark
+### 4.3 Capability detection, runtime selection & benchmark (implemented M3)
 
-Signals: `navigator.gpu.requestAdapter()` (+ adapter info), `hardwareConcurrency`, `deviceMemory` (Chromium), `navigator.storage.estimate()`, cross-origin isolation status, UA-based browser tiering. Then an optional ~2–4 s micro-benchmark: generate a fixed short sentence with the recommended dtype/device, measure RTF, classify into performance tiers (e.g. slow/ok/fast). Result cached in `localStorage` with a TTL and invalidated on device/browser change. Output feeds both the recommendation card and telemetry (tier label only — never text).
+**Device profile (`tts-engine/device/deviceProfile.ts`).** One async detection pass produces a `DeviceProfile` where every signal carries an explicit confidence level:
+
+| Signal | Source | Confidence |
+| --- | --- | --- |
+| WebGPU presence | `navigator.gpu` | known (presence ≠ usability) |
+| WebGPU adapter usable | `requestAdapter()` resolves truthy (+ `adapter.info` vendor/architecture when exposed) | known |
+| CPU threads | `navigator.hardwareConcurrency` | known (logical cores as reported by OS) |
+| Device memory | `navigator.deviceMemory` | estimated (coarse bucket, Chromium only) |
+| Cross-origin isolation / SharedArrayBuffer | context flags | known |
+| Storage quota/usage | `navigator.storage.estimate()` | estimated |
+| Browser family | UA-CH brands / coarse UA sniff | known (family only — no fingerprinting) |
+
+Anything the platform does not expose is reported as **unknown**, never guessed. The profile deliberately excludes fingerprinting-grade signals (no canvas/WebGL probes, no detailed UA parsing); it never leaves the device. A stable `deviceSignature` (threads/memory/isolation/browser/SAB) makes benchmark results comparable across sessions.
+
+**Runtime selection (`tts-engine/runtime/runtimeSelection.ts`).** Pure function of the profile: WebGPU is a candidate only after a real adapter probe passes; WASM is always the floor; neither → "local generation unavailable". A WebGPU load failure recorded in-session drops GPU from candidates until reload. Selection decides what to *try*; measurement decides what to *keep* — WebGPU is never assumed faster merely because it exists. Plain-language mode labels ("Using your GPU for local generation" / "Using CPU mode for local generation") come from this module.
+
+**Real TTS benchmark (`tts-engine/benchmark/ttsBenchmark.ts`).** Loads the selected provider (or reuses the app's already-loaded model at zero extra cost), generates one fixed short sentence, and measures wall-clock init time, generation time, and produced audio duration on THIS device:
+
+```
+rtf             = generation_time / generated_audio_duration   (lower is faster)
+speedMultiplier = audio_duration / generation_time             ("1.8× real time")
+estimated_time  = target_audio_duration × rtf                  ("Estimated time for 7 minutes of audio: 3m 53s")
+```
+
+A self-loaded model is released in all paths; a reused model stays owned by its caller. Estimates are labeled as estimates everywhere they appear.
+
+**Benchmark cache (`tts-engine/benchmark/benchmarkCache.ts`).** Measurements persist in localStorage under one key, per `modelId|dtype|runtime`, together with the benchmark version and the device signature. A cached value is served only when ALL of these still match AND the measurement is younger than **30 days** (TTL policy); otherwise it is ignored and re-measured on the next trigger. Corrupted containers/entries are discarded by shape validation. Benchmark data is **local-only** — nothing is sent to the backend (D-011/D-017).
+
+**Measurement triggers.** Never on page load (that would pull model bytes): the benchmark runs (a) automatically once, ~1.5 s after a successful generation warms the model, or (b) on demand via the device card button.
+
+**Model recommendation (`tts-engine/recommend/*`).** Data-only `ModelDescriptor`s (id, provider id, runtimes, minimum requirements, quality tier, emotion/cloning support, documented download size, voices) live in a registry; Kokoro q8 is registered today, future local models (Piper etc.) register without code changes elsewhere. `recommendModels(profile, benchmarks, userRequirements)` ranks descriptors per user intent (`quality | speed | privacy-local | expressive`) using eligibility filtering + measured RTF when available. Confidence is honest: `measured` only with a matching cached benchmark, else `unknown` with no invented numbers. The React card is just one consumer.
+
+**Model download optimization.** Lazy load on first Generate (never on landing/workspace open); streamed aggregate progress; cancellation via worker termination; weights+voices cached by transformers.js in the Cache API. On top of that, a localStorage record of the last fully successful download enables corrupted-cache recovery: if a load fails while a success record exists, the worker evicts every cached request for the model's repo path (`clear-cache` protocol message) and the load retries ONCE from the network. First-ever failures are treated as network/GPU trouble and skip eviction. Smaller quantized variants (q4/q4f16) exist upstream but stay unshipped until quality-validated (D-004).
+
+**Idle memory reclamation.** The web app releases the loaded session (worker + weights) after **15 minutes** without activity; finished audio URLs survive, and the next generate transparently reloads from cache. Generated PCM buffers remain transferables released after WAV encoding; object URLs are revoked on replacement/unmount.
 
 ## 5. Audio Pipeline (`packages/audio`)
 

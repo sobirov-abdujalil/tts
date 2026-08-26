@@ -90,5 +90,29 @@ Append-only log. Each decision: context → decision → consequences. Changing 
 **Decision:** (1) Cancellation is enforced by terminating the inference worker immediately; the next operation transparently respawns it and reloads from cache (cooperative chunk-level abort arrives with M3 long-text pipeline). (2) Device order is WebGPU→WASM with q8 for both; if the GPU path fails at load time the provider falls back automatically — WebGPU is an optimization, never a requirement; per-device dtype selection waits for the M3 benchmark (D-004). (3) The curated free-tier voice catalog lives in `packages/shared` as data; voice ids are validated against it before dispatch. (4) Input is capped at 2,000 chars until chunking lands (M3 raises this).
 **Consequences:** Cancel is prompt and simple but reloads weights from cache (~seconds); acceptable while generation is a single chunk. A failed WebGPU load doubles nothing (fallback happens inside one load request). Voice metadata has exactly one source of truth.
 
+## D-016 — Device capability honesty levels: known / estimated / unknown
+**Date:** 2026-08-26 · **Status:** Accepted
+**Context:** M3 device detection must inform recommendations without overclaiming. `navigator.hardwareConcurrency` is a definitive report; `navigator.deviceMemory` is a coarse capped approximation; exact GPU model names are only exposed when the adapter offers them; many signals (storage quota precision, browser identity without UA parsing) are simply not reliably available.
+**Decision:** Every detected signal carries an explicit confidence: `known` (standard API reports it), `estimated` (browser-provided approximation), or `unknown` (not exposed — never guessed). The profile reads only non-fingerprinting signals (adapter probe + vendor/architecture hints, thread count, memory bucket, isolation flags, storage estimate, coarse browser family) and stays on-device. A stable device signature (threads/memory/isolation/browser/SAB) gates benchmark comparability.
+**Consequences:** UI copy can be precise about what the app does and doesn't know; privacy surface stays minimal; future signals slot into the same three-level contract.
+
+## D-017 — Runtime selection policy and local-only benchmark cache
+**Date:** 2026-08-26 · **Status:** Accepted
+**Context:** WebGPU presence ≠ usable/faster; WASM speed varies widely (R1/R2). Users need honest expectations, and re-benchmarking on every visit would waste time and bytes.
+**Decision:** (1) Selection order is WebGPU (only after a real adapter probe passes) → WASM → unavailable; a WebGPU load failure recorded in-session drops GPU from candidates until reload. Selection decides what to *try*; the measured RTF decides what to *keep* — WebGPU is never assumed faster. (2) The benchmark generates one fixed sentence through the real provider, measures init/generation/audio-duration, and derives `rtf = generation_time / audio_duration`, `speedMultiplier = audio/generation`, `estimated_time = target_audio_duration × rtf`. All user-facing numbers are labeled "Measured on this device" / estimates. (3) Results persist in localStorage per `modelId|dtype|runtime` + benchmark version + device signature with a **30-day TTL**; any mismatch invalidates silently. (4) Benchmark/device data never leaves the browser — no backend endpoint receives it.
+**Consequences:** Honest per-device expectations at near-zero steady-state cost; risk of stale measurements bounded by TTL + signature checks; runtime comparison (benchmarking both WebGPU and WASM) remains available via per-runtime cache entries but is not auto-run (doubles first-run cost).
+
+## D-018 — Model descriptors as data; registry-based recommendation
+**Date:** 2026-08-26 · **Status:** Accepted
+**Context:** The recommendation system must outlive Kokoro: future local models (Piper, smaller/quantized variants) need to appear without rewriting UI or router logic, and specs must never be invented.
+**Decision:** Models are data-only `ModelDescriptor`s (provider id, runtimes, minimum requirements, quality tier, emotion/cloning support flags, documented download size or null, voices) registered in one engine registry. `recommendModels(deviceProfile, benchmarks, userRequirements)` filters by eligibility, picks the runtime from the selection plan, attaches measured RTF only from matching cached benchmarks (`confidence: "measured" | "unknown"`), and ranks per user intent (`quality | speed | privacy-local | expressive`). The React card is one consumer of the result list.
+**Consequences:** Adding a local model = register descriptor + implement provider; unsupported claims are structurally impossible (fields must be documented or null); expressive intent already routes correctly (Kokoro reports no emotion support) ahead of M7.
+
+## D-019 — Idle release of the loaded session; tab-wide provider singleton
+**Date:** 2026-08-26 · **Status:** Accepted
+**Context:** ~86 MB weights + ORT worker should not stay resident forever, but tearing down on React unmounts (StrictMode double-mounts!) would thrash the session and slow every generation.
+**Decision:** The web app holds ONE provider instance per tab (survives remounts) and releases the loaded session (graceful in-worker dispose, then worker termination) after **15 minutes** without any operation. Finished audio object URLs survive the release; the next generate reloads transparently from cache.
+**Consequences:** Bounded memory for idle tabs; slightly slower first generate after long idles (cache-warm load); cancellation semantics unchanged.
+
 ## Superseded / Rejected
 (none yet)

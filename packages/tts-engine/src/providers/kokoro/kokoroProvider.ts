@@ -51,6 +51,25 @@ export function defaultKokoroWorkerFactory(): WorkerHandle {
   return new Worker(new URL("./kokoroWorker.ts", import.meta.url), { type: "module" });
 }
 
+export interface DownloadRecoveryHooks {
+  /** Record of a previously successful full load, or null (never cached). */
+  getLastSuccessfulLoad(modelKey: string): { at: number } | null;
+  recordSuccessfulLoad(modelKey: string): void;
+  /** Evict cached files for this model (Cache API); may throw — best effort. */
+  clearCachedFiles(modelId: string): Promise<void>;
+}
+
+/**
+ * Cached-benchmark lookup used to answer honest speed estimates without
+ * loading anything. Returns null when no valid measurement exists.
+ */
+export interface BenchmarkEstimateLookup {
+  realtimeFactor: number;
+  runtime: KokoroDevice;
+  modelId: string;
+  dtype: string;
+}
+
 export interface KokoroProviderOptions {
   workerFactory?: WorkerFactory;
   loadConfig?: KokoroLoadConfig;
@@ -60,6 +79,10 @@ export interface KokoroProviderOptions {
    * injectable for tests.
    */
   webgpuProbe?: () => Promise<boolean>;
+  /** Corrupted-cache detection/recovery; optional (tests run without it). */
+  recovery?: DownloadRecoveryHooks;
+  /** Local-only benchmark source for estimate(); optional. */
+  estimateLookup?: (() => BenchmarkEstimateLookup | null) | undefined;
 }
 
 interface PendingRequest<T> {
@@ -121,6 +144,8 @@ export class KokoroLocalProvider implements TTSModelProvider {
   private readonly workerFactory: WorkerFactory;
   private readonly loadConfig: KokoroLoadConfig;
   private readonly webgpuProbe: () => Promise<boolean>;
+  private readonly recovery: DownloadRecoveryHooks | null;
+  private readonly estimateLookup: (() => BenchmarkEstimateLookup | null) | undefined;
 
   private worker: WorkerHandle | null = null;
   private readonly pending = new Map<number, PendingRequest<unknown>>();
@@ -134,6 +159,8 @@ export class KokoroLocalProvider implements TTSModelProvider {
     this.workerFactory = options.workerFactory ?? defaultKokoroWorkerFactory;
     this.loadConfig = options.loadConfig ?? KOKORO_DEFAULT_LOAD_CONFIG;
     this.webgpuProbe = options.webgpuProbe ?? probeWebGPUAdapter;
+    this.recovery = options.recovery ?? null;
+    this.estimateLookup = options.estimateLookup;
   }
 
   /** Local inference requires WebAssembly; WebGPU is an optional accelerator. */
@@ -142,11 +169,19 @@ export class KokoroLocalProvider implements TTSModelProvider {
   }
 
   /**
-   * Rough speed estimates wait for the M3 micro-benchmark (ARCHITECTURE.md §4.3);
-   * honest null beats made-up numbers.
+   * Honest speed estimate from the local benchmark cache (ARCHITECTURE.md
+   * §4.3). Returns null unless a cached measurement matches the configured
+   * model+dtype and, when a session is live, the runtime actually in use.
+   * No measurement is ever invented.
    */
   estimate(_ctx: EstimateContext): SpeedEstimate | null {
-    return null;
+    const lookup = this.estimateLookup?.();
+    if (!lookup) return null;
+    if (lookup.modelId !== this.loadConfig.modelId || lookup.dtype !== this.loadConfig.dtype) {
+      return null;
+    }
+    if (this.loadedDevice !== null && lookup.runtime !== this.loadedDevice) return null;
+    return { realtimeFactor: lookup.realtimeFactor };
   }
 
   async load(opts: LoadOptions): Promise<LoadedModel> {
@@ -167,6 +202,24 @@ export class KokoroLocalProvider implements TTSModelProvider {
   /** Device the model currently runs on; null before/at load failure. */
   get activeDevice(): KokoroDevice | null {
     return this.loadedDevice;
+  }
+
+  /**
+   * Evict this model's cached files (weights + voice data) via the worker's
+   * Cache API access, ending with a fresh worker state. Intended for
+   * corrupted-cache recovery AFTER a failed load — never while a session is
+   * generating.
+   */
+  async clearModelCache(): Promise<void> {
+    this.terminateWorker();
+    this.spawnWorker();
+    const id = this.nextRequestId++;
+    await this.request<undefined>(id, {
+      kind: "clear-cache",
+      id,
+      payload: { modelId: this.loadConfig.modelId },
+    });
+    this.terminateWorker();
   }
 
   // ---- public surface internals -------------------------------------------
@@ -203,9 +256,43 @@ export class KokoroLocalProvider implements TTSModelProvider {
   }
 
   private doLoad(signal?: AbortSignal): Promise<KokoroDevice> {
-    return this.resolveCandidateDevices().then((devices) =>
-      this.loadOnFirstWorkingDevice(devices, signal),
-    );
+    return this.resolveCandidateDevices().then((devices) => this.loadWithRecovery(devices, signal));
+  }
+
+  /**
+   * Corrupted-cache recovery (downloadTracker.ts): when a load fails despite
+   * a record of a previous successful download, the cache is the prime
+   * suspect — evict this model's cached files and retry ONCE from the
+   * network. A first-ever failure (no record) skips recovery entirely.
+   */
+  private async loadWithRecovery(
+    devices: readonly KokoroDevice[],
+    signal?: AbortSignal,
+  ): Promise<KokoroDevice> {
+    try {
+      const device = await this.loadOnFirstWorkingDevice(devices, signal);
+      this.recovery?.recordSuccessfulLoad(this.modelKey());
+      return device;
+    } catch (error) {
+      if (!this.recovery || !isLoadFailure(error) || signal?.aborted) throw error;
+      if (this.recovery.getLastSuccessfulLoad(this.modelKey()) === null) throw error;
+
+      try {
+        await this.recovery.clearCachedFiles(this.loadConfig.modelId);
+      } catch {
+        // Eviction is best-effort; the retry below still gets a clean chance.
+      }
+      if (signal?.aborted) throw cancelledError();
+
+      const device = await this.loadOnFirstWorkingDevice(devices, signal);
+      this.recovery.recordSuccessfulLoad(this.modelKey());
+      return device;
+    }
+  }
+
+  /** Storage key for download records: model + quantization identity. */
+  private modelKey(): string {
+    return `${this.loadConfig.modelId}:${this.loadConfig.dtype}`;
   }
 
   /**
@@ -382,6 +469,9 @@ export class KokoroLocalProvider implements TTSModelProvider {
         pending.resolve({ sampleRateHz: message.sampleRateHz, pcm: message.pcm });
         break;
       case "released":
+        pending.resolve(undefined);
+        break;
+      case "cache-cleared":
         pending.resolve(undefined);
         break;
       case "error":

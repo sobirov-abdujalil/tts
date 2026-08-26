@@ -150,6 +150,37 @@ async function handleRelease(id: number): Promise<void> {
   scope.postMessage({ kind: "released", id });
 }
 
+/**
+ * Transformers.js v3 persists model files in the browser Cache API under this
+ * cache name. Deleting every request whose URL contains the repo path evicts
+ * that model (weights AND its voice data, which ships in the same repo) so a
+ * suspected-corrupted entry is re-fetched cleanly. Best-effort: failures still
+ * reply `cache-cleared` — the subsequent network retry succeeds or fails on
+ * its own terms.
+ */
+const TRANSFORMERS_JS_CACHE_NAME = "transformers-cache";
+
+async function handleClearCache(
+  id: number,
+  payload: { modelId: string },
+): Promise<void> {
+  try {
+    const cachesRef = (self as unknown as { caches?: CacheStorage }).caches;
+    if (cachesRef && typeof cachesRef.open === "function") {
+      const cache = await cachesRef.open(TRANSFORMERS_JS_CACHE_NAME);
+      const requests = await cache.keys();
+      await Promise.all(
+        requests
+          .filter((request) => request.url.includes(payload.modelId))
+          .map((request) => cache.delete(request)),
+      );
+    }
+  } catch {
+    // Best-effort eviction; see docblock.
+  }
+  scope.postMessage({ kind: "cache-cleared", id });
+}
+
 scope.onmessage = (event: MessageEvent<MainToWorkerMessage>) => {
   const message = event.data;
   switch (message.kind) {
@@ -163,6 +194,9 @@ scope.onmessage = (event: MessageEvent<MainToWorkerMessage>) => {
       break;
     case "release":
       void handleRelease(message.id);
+      break;
+    case "clear-cache":
+      void handleClearCache(message.id, message.payload);
       break;
   }
 };

@@ -5,40 +5,51 @@
  *
  * Privacy: text flows exclusively from the editor into provider.generate();
  * nothing here performs network I/O (guarded by engine + web source tests).
+ *
+ * Memory (M3): the provider is a tab-wide singleton (providerSingleton.ts) so
+ * the loaded model survives React remounts; an idle timer releases the
+ * session after IDLE_RELEASE_MS without activity, freeing worker + weights —
+ * the next generate transparently reloads from the browser cache.
  */
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import {
   detectInferenceEnvironment,
-  getPreferredLocalProvider,
   isTtsError,
   type LoadedModel,
-  type TTSModelProvider,
   type TtsErrorCode,
 } from "@tts/tts-engine";
 import { WAV_MIME_TYPE, encodeWavPcm16 } from "@tts/audio";
 import { validateSynthesisText } from "@tts/shared";
+import { getAppTtsProvider } from "./providerSingleton.js";
 import { initialTtsUiState, ttsUiReducer, type TtsUiState } from "./ttsState.js";
+
+/** Release the loaded model after this long without any operation. */
+export const IDLE_RELEASE_MS = 15 * 60 * 1000;
 
 export interface UseLocalTts {
   state: TtsUiState;
   generate(text: string, voiceId: string): Promise<void>;
   cancel(): void;
   dismissError(): void;
+  /** The warm model session, if one is currently loaded (for benchmark reuse). */
+  getModel(): LoadedModel | null;
 }
 
 export function useLocalTts(): UseLocalTts {
   const [state, dispatch] = useReducer(ttsUiReducer, initialTtsUiState);
 
-  const providerRef = useRef<TTSModelProvider | null>(null);
+  const providerRef = useRef<ReturnType<typeof getAppTtsProvider> | null>(null);
   const modelRef = useRef<LoadedModel | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const busyRef = useRef(false);
 
-  // Environment probe once on mount; dispose the provider on unmount.
+  // Environment probe once on mount. The provider is NOT disposed on unmount:
+  // it is shared for the whole tab (StrictMode-safe) and released via idle
+  // timeout instead.
   useEffect(() => {
-    const provider = getPreferredLocalProvider();
+    const provider = getAppTtsProvider();
     providerRef.current = provider;
     dispatch({
       type: "env-checked",
@@ -47,9 +58,21 @@ export function useLocalTts(): UseLocalTts {
     return () => {
       abortRef.current?.abort();
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      provider.dispose?.();
     };
   }, []);
+
+  // Idle release: free the ~100 MB worker/session when nothing happens for a
+  // while. Re-arms on every phase change; never fires mid-operation.
+  useEffect(() => {
+    if (state.phase !== "idle" && state.phase !== "ready") return;
+    const timer = setTimeout(() => {
+      if (busyRef.current) return;
+      modelRef.current = null;
+      const provider = providerRef.current;
+      void provider?.release?.().then(() => dispatch({ type: "model-released" }));
+    }, IDLE_RELEASE_MS);
+    return () => clearTimeout(timer);
+  }, [state.phase]);
 
   const revokeCurrentAudio = useCallback((): void => {
     if (audioUrlRef.current) {
@@ -72,8 +95,8 @@ export function useLocalTts(): UseLocalTts {
         return;
       }
 
-      const provider = providerRef.current;
-      if (!provider) return;
+      const provider = getAppTtsProvider();
+      providerRef.current = provider;
 
       busyRef.current = true;
       const controller = new AbortController();
@@ -135,5 +158,7 @@ export function useLocalTts(): UseLocalTts {
     dispatch({ type: "error-dismissed" });
   }, []);
 
-  return { state, generate, cancel, dismissError };
+  const getModel = useCallback((): LoadedModel | null => modelRef.current, []);
+
+  return { state, generate, cancel, dismissError, getModel };
 }

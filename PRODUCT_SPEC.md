@@ -75,10 +75,12 @@ Prices live ONLY in plan configuration (`packages/shared/src/plans`), never in b
 - Registry is data-driven (`packages/shared`), shared by frontend, engine, and (later) cloud providers.
 - Premium/emotional voices appear locked with clear upgrade affordance — no fake paywalling of basic quality.
 
-### 6.3 Device recommendation
-- Capability check (WebGPU probe, CPU cores, memory hints, storage estimate) plus optional short benchmark.
-- Output shown in plain language: recommended model, estimated speed ("≈ 2.1× real time"), estimated time for current text, and Local/Private vs Cloud labeling.
-- Modular: recommendation engine accepts any registered provider, so future local models slot in.
+### 6.3 Device recommendation (implemented M3)
+- Capability check runs on workspace open (cheap, no model bytes): WebGPU adapter probe, CPU threads, memory hint, storage estimate — each labeled honestly as known / estimated / unknown; nothing fingerprinting-grade is read, and nothing leaves the device.
+- Optional short benchmark generates one fixed sentence locally and reports a **measured** speed ("Measured on this device: 1.8× real time") plus an estimate derived from it ("Estimated time for 7 minutes of audio: ≈ 3m 53s"). Estimates are always labeled as estimates; without a measurement the card shows capability facts and offers to measure.
+- The measurement runs once, quietly, right after a first successful generation (model already warm), or on demand via a button; it persists ~30 days per model+runtime+device and never re-runs while valid.
+- Output in plain language: recommended model ("Kokoro — Local"), execution mode ("Using your GPU for local generation" / "Using CPU mode for local generation"), and "Generation happens on your device."
+- Modular: recommendation engine consumes registered model descriptors + device profile + measurements + user intent (quality/speed/local/expressive), so future local models slot in without UI rewrites.
 
 ### 6.4 Emotion system (paid, M7)
 - Users may write tags like `[curious] …`, `[laughing] …`.

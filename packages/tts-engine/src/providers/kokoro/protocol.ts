@@ -14,7 +14,7 @@
 import type { TtsErrorCode } from "../../errors.js";
 import type { KokoroDevice, KokoroDtype } from "./config.js";
 
-export const WORKER_PROTOCOL_VERSION = 1;
+export const WORKER_PROTOCOL_VERSION = 2;
 
 export interface LoadRequestPayload {
   modelId: string;
@@ -29,19 +29,26 @@ export interface GenerateRequestPayload {
   speed: number;
 }
 
+export interface ClearCacheRequestPayload {
+  /** Repository id whose cached files should be deleted, e.g. the model id. */
+  modelId: string;
+}
+
 export type MainToWorkerMessage =
   | { kind: "load"; id: number; payload: LoadRequestPayload }
   | { kind: "generate"; id: number; payload: GenerateRequestPayload }
-  | { kind: "release"; id: number };
+  | { kind: "release"; id: number }
+  | { kind: "clear-cache"; id: number; payload: ClearCacheRequestPayload };
 
 export type WorkerToMainMessage =
   | { kind: "load-progress"; id: number; fraction: number }
   | { kind: "ready"; id: number; device: KokoroDevice }
   | { kind: "result"; id: number; sampleRateHz: number; pcm: Float32Array }
   | { kind: "released"; id: number }
+  | { kind: "cache-cleared"; id: number }
   | { kind: "error"; id: number; code: TtsErrorCode; message: string };
 
-const MAIN_KINDS = new Set(["load", "generate", "release"]);
+const MAIN_KINDS = new Set(["load", "generate", "release", "clear-cache"]);
 
 /** Structural guard for messages arriving at the worker. */
 export function isMainToWorkerMessage(value: unknown): value is MainToWorkerMessage {

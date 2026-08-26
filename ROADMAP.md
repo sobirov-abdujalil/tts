@@ -2,7 +2,7 @@
 
 Milestones are strictly sequential. A milestone is **complete** only when its acceptance criteria pass, tests/lint/typecheck/build are green, docs are updated, and a git checkpoint (commit + tag) exists.
 
-**Current status: M2 complete — local TTS MVP (tag `v0.2-local-tts`). Next: M3.**
+**Current status: M2 complete (tag `v0.2-local-tts`). M3 in progress — adaptive local inference (capability detection, runtime selection, real benchmark + cache, model recommendation, download/caching optimization, idle memory reclamation) landed; long-text pipeline still open.**
 
 ---
 
@@ -50,19 +50,19 @@ Known M2 limitations (carried into M3): single-chunk generation (2,000-char inte
 Robustness for real-world text and devices.
 
 Scope:
-- Capability detection module + optional micro-benchmark → performance tier
-- WebGPU path behind runtime validation with automatic WASM fallback (resolve R2 empirically)
-- Long-text pipeline: sentence chunking, ordered generation, pause insertion between paragraphs, chunk retry, concatenation (`packages/audio`)
-- Memory management: session reuse, release-on-idle, transferables; repeated-generation soak test
-- Error taxonomy: typed failures (download failed, OOM-ish, unsupported, cancelled) surfaced in UI copy
+- ~~Capability detection module + optional micro-benchmark → performance tier~~ **done (M3a)**: `DeviceProfile` with known/estimated/unknown honesty levels; real fixed-sentence benchmark measuring init/generation/audio-duration/RTF; result cached ~30 days per model+runtime+device signature; recommendation card shows measured speed ("Measured on this device: X× real time") and derived estimate ("Estimated time for 7 minutes of audio")
+- ~~WebGPU path behind runtime validation with automatic WASM fallback~~ **done (M3a)**: runtime-selection plan (adapter-probe-gated WebGPU → WASM → unavailable), session-scoped GPU failure drop, plain-language mode labels; per-device dtype policy (R2) remains empirical follow-up
+- ~~Model download optimization / corrupted-cache recovery / memory management~~ **partially done (M3a)**: lazy load, progress, cancel, Cache-API reuse verified by e2e; localStorage download records + clear-and-retry-once recovery; 15-min idle release of worker+weights; repeated-generation stability asserted via provider soak tests. Full heap-snapshot verification still open
+- Long-text pipeline: sentence chunking, ordered generation, pause insertion between paragraphs, chunk retry, concatenation (`packages/audio`) — **not started**
+- Error taxonomy: mostly exists since M2 (`TtsError` codes surfaced in UI); revisit after chunking
 - COOP/COEP headers for cross-origin isolation where feasible; single-thread fallback verified
 
 Acceptance criteria:
-- [ ] 5,000-character document generates correctly ordered audio with paragraph pauses
-- [ ] Failed chunk retries once then reports precise error without losing completed audio
-- [ ] WebGPU device uses GPU path when beneficial; non-WebGPU devices fall back transparently
-- [ ] 20 consecutive generations show stable memory (heap snapshot delta bounded)
-- [ ] Recommendation card shows measured estimate ("≈X× real time")
+- [ ] 5,000-character document generates correctly ordered audio with paragraph pauses *(blocked on long-text pipeline)*
+- [ ] Failed chunk retries once then reports precise error without losing completed audio *(blocked on long-text pipeline)*
+- [x] WebGPU device uses GPU path when beneficial; non-WebGPU devices fall back transparently (unit + mocked-gpu browser tests)
+- [ ] 20 consecutive generations show stable memory (heap snapshot delta bounded) — provider-level tests exist; full browser soak pending
+- [x] Recommendation card shows measured estimate ("≈X× real time") (fast e2e + gated real-model benchmark e2e)
 
 ## M4 — Production UX → tag `v0.4-production-ui`
 The product looks and feels commercial.

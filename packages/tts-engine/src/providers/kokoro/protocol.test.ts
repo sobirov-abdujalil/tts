@@ -4,13 +4,14 @@ import type { MainToWorkerMessage, WorkerToMainMessage } from "./protocol.js";
 
 describe("kokoro worker protocol", () => {
   it("has a stable protocol version", () => {
-    expect(WORKER_PROTOCOL_VERSION).toBe(1);
+    expect(WORKER_PROTOCOL_VERSION).toBe(2);
   });
 
   it.each([
     { kind: "load", id: 1, payload: { modelId: "m", dtype: "q8", devices: ["wasm"] } },
     { kind: "generate", id: 2, payload: { text: "hi", voiceId: "af_heart", speed: 1 } },
     { kind: "release", id: 3 },
+    { kind: "clear-cache", id: 4, payload: { modelId: "onnx-community/Kokoro-82M-v1.0-ONNX" } },
   ] satisfies MainToWorkerMessage[])("accepts valid main→worker message %o", (message) => {
     expect(isMainToWorkerMessage(message)).toBe(true);
   });
@@ -34,6 +35,7 @@ describe("kokoro worker protocol", () => {
       { kind: "ready", id: 1, device: "wasm" },
       { kind: "result", id: 2, sampleRateHz: 24000, pcm: new Float32Array([0.1]) },
       { kind: "released", id: 3 },
+      { kind: "cache-cleared", id: 5 },
       { kind: "error", id: 4, code: "generation-failed", message: "boom" },
     ];
     for (const message of responses) {

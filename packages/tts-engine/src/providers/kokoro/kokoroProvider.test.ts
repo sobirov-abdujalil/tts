@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MainToWorkerMessage, WorkerToMainMessage } from "./protocol.js";
-import { KokoroLocalProvider, type WorkerHandle } from "./kokoroProvider.js";
+import { KokoroLocalProvider, type DownloadRecoveryHooks, type WorkerHandle } from "./kokoroProvider.js";
 import type { LoadedModel } from "../../index.js";
 import type { KokoroDevice } from "./config.js";
 
@@ -26,7 +26,12 @@ class FakeWorker implements WorkerHandle {
 
   postMessage(message: MainToWorkerMessage): void {
     this.sent.push(message);
-    if (message.kind !== "load") return;
+    if (message.kind !== "load") {
+      if (message.kind === "clear-cache") {
+        this.reply({ kind: "cache-cleared", id: message.id });
+      }
+      return;
+    }
     if (this.autoLoadDevice === "fail") {
       this.reply({
         kind: "error",
@@ -367,5 +372,172 @@ describe("KokoroLocalProvider", () => {
         device: { webgpuAvailable: true, cpuCores: 8, crossOriginIsolated: true },
       }),
     ).toBeNull();
+  });
+
+  // ---- corrupted-cache recovery (M3) --------------------------------------
+
+  describe("corrupted-cache recovery", () => {
+    function recoveryHarness(options: {
+      workerDevices: Array<KokoroDevice | null | "fail">;
+      previousSuccess: boolean;
+    }): {
+      provider: KokoroLocalProvider;
+      workers: FakeWorker[];
+      clearedFor: string[];
+      recordWrites: number;
+      lookups: number;
+    } {
+      const workers: FakeWorker[] = [];
+      const cleared: string[] = [];
+      let recordWriteCount = 0;
+      let lookupCount = 0;
+      const hooks: DownloadRecoveryHooks = {
+        getLastSuccessfulLoad: (_modelKey) => {
+          lookupCount += 1;
+          return options.previousSuccess ? { at: 123 } : null;
+        },
+        recordSuccessfulLoad: () => {
+          recordWriteCount += 1;
+        },
+        clearCachedFiles: async (modelId) => {
+          cleared.push(modelId);
+        },
+      };
+      let spawnIndex = 0;
+      const provider = new KokoroLocalProvider({
+        workerFactory: () => {
+          const behavior = options.workerDevices[spawnIndex] ?? "fail";
+          spawnIndex += 1;
+          const worker = new FakeWorker(behavior);
+          workers.push(worker);
+          return worker;
+        },
+        loadConfig: { modelId: "test-model", dtype: "q8", devicePreference: ["wasm"] },
+        recovery: hooks,
+      });
+      return {
+        provider,
+        workers,
+        get clearedFor(): string[] {
+          return cleared;
+        },
+        get recordWrites(): number {
+          return recordWriteCount;
+        },
+        get lookups(): number {
+          return lookupCount;
+        },
+      };
+    }
+
+    it("clears the cache and retries once after a failure when the model was cached before", async () => {
+      // Attempt 1 fails; the retry (attempt 2) succeeds from a clean cache.
+      const harness = recoveryHarness({ workerDevices: ["fail", "wasm"], previousSuccess: true });
+
+      const model = await harness.provider.load({ onProgress: () => {} });
+      expect(model.activeDevice).toBe("wasm");
+      expect(harness.workers).toHaveLength(2);
+      expect(harness.clearedFor).toEqual(["test-model"]);
+      expect(harness.recordWrites).toBe(1);
+    });
+
+    it("does NOT clear anything on a first-ever failure (no cached state to suspect)", async () => {
+      // Even though a retry would succeed, policy says first failure ≠ corruption.
+      const harness = recoveryHarness({ workerDevices: ["fail", "wasm"], previousSuccess: false });
+
+      await expect(harness.provider.load({ onProgress: () => {} })).rejects.toMatchObject({
+        code: "model-load-failed",
+      });
+      expect(harness.clearedFor).toHaveLength(0);
+      expect(harness.lookups).toBe(1);
+    });
+
+    it("does not trigger recovery for non-load failures", async () => {
+      const workers: FakeWorker[] = [];
+      const provider = new KokoroLocalProvider({
+        workerFactory: () => {
+          const worker = new FakeWorker(null);
+          workers.push(worker);
+          return worker;
+        },
+        loadConfig: { modelId: "test-model", dtype: "q8", devicePreference: ["wasm"] },
+        recovery: {
+          getLastSuccessfulLoad: () => ({ at: 1 }),
+          recordSuccessfulLoad: () => {},
+          clearCachedFiles: async () => {
+            throw new Error("must not be called");
+          },
+        },
+      });
+
+      // Simulate a non-"model-load-failed" error reply to the load request.
+      const pending = provider.load({ onProgress: () => {} });
+      await tick();
+      const worker = workers[0]!;
+      const loadId = worker.sent.find((m) => m.kind === "load")!.id;
+      worker.reply({ kind: "error", id: loadId, code: "runtime-failure", message: "boom" });
+
+      await expect(pending).rejects.toMatchObject({ code: "runtime-failure" });
+    });
+
+    it("clearModelCache sends clear-cache through the worker and terminates it", async () => {
+      const harness = createHarness(null);
+      const clearing = harness.provider.clearModelCache();
+      await tick();
+
+      const worker = harness.latest();
+      const message = worker.sent.find((m) => m.kind === "clear-cache");
+      expect(message).toMatchObject({ payload: { modelId: "test-model" } });
+      worker.reply({ kind: "cache-cleared", id: message!.id });
+      await clearing;
+
+      expect(worker.terminated).toBe(true);
+    });
+  });
+
+  // ---- estimate() wiring ----------------------------------------------------
+
+  it("serves honest estimates only from a matching local benchmark lookup", async () => {
+    const ctx = {
+      charCount: 100,
+      device: { webgpuAvailable: false, cpuCores: 8, crossOriginIsolated: true },
+    };
+
+    const plain = new KokoroLocalProvider();
+    expect(plain.estimate(ctx)).toBeNull();
+
+    const configured = new KokoroLocalProvider({
+      loadConfig: { modelId: "test-model", dtype: "q8", devicePreference: ["wasm"] },
+      estimateLookup: () => ({
+        realtimeFactor: 0.55,
+        runtime: "wasm",
+        modelId: "test-model",
+        dtype: "q8",
+      }),
+    });
+    expect(configured.estimate(ctx)).toEqual({ realtimeFactor: 0.55 });
+
+    // A measurement for another model/dtype must not be reused.
+    const mismatched = new KokoroLocalProvider({
+      loadConfig: { modelId: "test-model", dtype: "q8", devicePreference: ["wasm"] },
+      estimateLookup: () => ({ realtimeFactor: 0.55, runtime: "wasm", modelId: "other", dtype: "q8" }),
+    });
+    expect(mismatched.estimate(ctx)).toBeNull();
+
+    // A live session on a different runtime than measured → no claim.
+    const workers: FakeWorker[] = [];
+    const runtimeAware = new KokoroLocalProvider({
+      workerFactory: () => {
+        const worker = new FakeWorker("webgpu");
+        workers.push(worker);
+        return worker;
+      },
+      loadConfig: { modelId: "test-model", dtype: "q8", devicePreference: ["webgpu"] },
+      webgpuProbe: async () => true,
+      estimateLookup: () => ({ realtimeFactor: 0.55, runtime: "wasm", modelId: "test-model", dtype: "q8" }),
+    });
+    await runtimeAware.load({ onProgress: () => {} }); // loads on webgpu
+    expect(runtimeAware.activeDevice).toBe("webgpu");
+    expect(runtimeAware.estimate(ctx)).toBeNull();
   });
 });
