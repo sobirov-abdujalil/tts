@@ -1,0 +1,17 @@
+{
+  "name": "@tts/tts-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Framework-agnostic TTS inference core: provider abstraction, capability detection contracts. No React, no DOM-only APIs.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

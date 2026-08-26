@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Environment — real values never committed (.env.example is tracked)
+.env
+.env.*
+!.env.example
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
