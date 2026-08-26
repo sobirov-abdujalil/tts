@@ -2,7 +2,7 @@
 
 Milestones are strictly sequential. A milestone is **complete** only when its acceptance criteria pass, tests/lint/typecheck/build are green, docs are updated, and a git checkpoint (commit + tag) exists.
 
-**Current status: M1 complete — repo & tooling foundation (tag `v0.1-foundation`). Next: M2.**
+**Current status: M2 complete — local TTS MVP (tag `v0.2-local-tts`). Next: M3.**
 
 ---
 
@@ -38,11 +38,13 @@ Scope:
 - Model cached by Transformers.js Cache API (verify second-load offline behavior)
 
 Acceptance criteria:
-- [ ] Desktop Chrome/Edge: enter text → hear speech without any request carrying the text (verify via devtools network)
-- [ ] First generation downloads model with visible progress; second visit does not re-download
-- [ ] Cancel during generation stops work promptly
-- [ ] Main thread stays responsive during generation (no jank on scroll/typing)
-- [ ] Unit tests: wav encoder, worker protocol; e2e: generate-and-download flow (WASM)
+- [x] Desktop Chrome/Edge: enter text → hear speech without any request carrying the text (verified by `e2e/generate.local.spec.ts` network assertions; run with `E2E_LOCAL_MODEL=1 pnpm test:e2e`)
+- [x] First generation downloads model with visible progress; second visit does not re-download (Cache API via transformers.js + kokoro voice cache; asserted in gated e2e)
+- [x] Cancel during generation stops work promptly (worker termination, D-015; unit-tested; worker respawns on next use)
+- [x] Main thread stays responsive during generation (all inference in a dedicated module Web Worker)
+- [x] Unit tests: wav encoder, worker protocol, provider lifecycle/state machine, shared validation/registry; e2e: generate-and-download flow (WASM) behind `E2E_LOCAL_MODEL=1`
+
+Known M2 limitations (carried into M3): single-chunk generation (2,000-char interim cap), speed control not yet in UI, no capability-detection card or speed estimates (estimates return null until the M3 micro-benchmark), WebGPU+q8 quality unvalidated per R2.
 
 ## M3 — Production Local Inference → tag `v0.3-browser-inference`
 Robustness for real-world text and devices.

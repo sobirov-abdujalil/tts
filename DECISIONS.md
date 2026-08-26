@@ -84,5 +84,11 @@ Append-only log. Each decision: context → decision → consequences. Changing 
 **Decision:** Package `exports` point directly at `src/index.ts`; no per-package build step or generated `.d.ts`. Only `apps/web` produces a build artifact today; API deployment packaging is decided at M8/deploy time.
 **Consequences:** Zero build orchestration between packages; consumers must remain TS-aware (true for all current tooling). Revisit if an external consumer or non-TS pipeline ever needs these packages.
 
+## D-015 — M2 execution choices: worker-termination cancellation, WebGPU-first attempt policy, registry subset
+**Date:** 2026-08-26 · **Status:** Accepted
+**Context:** M2 ships single-chunk local generation. kokoro-js exposes no per-chunk abort hook for one-shot `generate()`, and the WebGPU dtype question (R2) is not yet benchmarked.
+**Decision:** (1) Cancellation is enforced by terminating the inference worker immediately; the next operation transparently respawns it and reloads from cache (cooperative chunk-level abort arrives with M3 long-text pipeline). (2) Device order is WebGPU→WASM with q8 for both; if the GPU path fails at load time the provider falls back automatically — WebGPU is an optimization, never a requirement; per-device dtype selection waits for the M3 benchmark (D-004). (3) The curated free-tier voice catalog lives in `packages/shared` as data; voice ids are validated against it before dispatch. (4) Input is capped at 2,000 chars until chunking lands (M3 raises this).
+**Consequences:** Cancel is prompt and simple but reloads weights from cache (~seconds); acceptable while generation is a single chunk. A failed WebGPU load doubles nothing (fallback happens inside one load request). Voice metadata has exactly one source of truth.
+
 ## Superseded / Rejected
 (none yet)

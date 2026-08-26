@@ -1,13 +1,11 @@
 /**
  * Audio pipeline primitives shared by the inference worker and main thread.
  *
- * Planned modules (implemented in M2/M3 per ROADMAP.md — intentionally absent
- * now to avoid speculative code):
- *  - TextSegmenter: paragraph/sentence chunking within model token budgets
- *  - PauseInserter: configurable silence between paragraphs/sentences
- *  - Concatenator: single-sample-rate float32 timeline assembly
- *  - WavEncoder: PCM16 WAV export
+ * Implemented: WavEncoder (PCM16 mono export).
+ * Planned (M3 per ROADMAP.md): TextSegmenter, PauseInserter, Concatenator.
  */
+
+export * from "./wav.js";
 
 /**
  * Canonical output sample rate for the assembled timeline (Hz).

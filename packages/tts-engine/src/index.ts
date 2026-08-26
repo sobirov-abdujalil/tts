@@ -2,13 +2,15 @@
  * Provider abstraction for TTS engines.
  *
  * This package defines the CONTRACT only. Concrete providers (Kokoro local via
- * kokoro-js in M2, cloud/expressive providers in M7) implement these interfaces
- * and register themselves — nothing outside this package may import a concrete
- * provider by name. The UI and router depend on these types alone.
+ * kokoro-js since M2, cloud/expressive providers in M7) implement these
+ * interfaces and register themselves — nothing outside this package may import
+ * a concrete provider by name. The UI and router depend on these types alone.
  *
  * Framework-agnostic: no React, no DOM-only APIs. Runs inside a Web Worker,
  * the main thread, and Node test processes.
  */
+
+import type { InferenceEnvironment } from "./env.js";
 
 /** Where inference for a provider executes. */
 export type ProviderKind = "local" | "cloud";
@@ -39,7 +41,7 @@ export interface ProviderCapabilities {
 
 /**
  * Device signals a provider needs before it can be considered.
- * Detection itself lives in a separate module (M3); this describes requirements.
+ * Detection lives in ./env.js (M2 minimal probe; full detection M3).
  */
 export interface DeviceRequirements {
   requiresWebGPU?: boolean;
@@ -83,12 +85,23 @@ export interface SynthesisInput {
   text: string;
   voiceId: string;
   speed?: number;
+  /**
+   * Aborting stops work promptly. For local single-chunk generation this
+   * terminates the inference worker (DECISIONS.md D-015); chunked cooperative
+   * abort arrives with long-text support in M3.
+   */
+  signal?: AbortSignal;
 }
 
 /** A loaded, ready-to-generate model instance. One active session at a time. */
 export interface LoadedModel {
   generate(input: SynthesisInput): Promise<AudioResult>;
   release(): Promise<void>;
+  /**
+   * Execution backend actually in use, when the provider exposes one
+   * (local providers report "webgpu"/"wasm"); null/undefined otherwise.
+   */
+  readonly activeDevice?: "webgpu" | "wasm" | null;
 }
 
 /**
@@ -96,9 +109,13 @@ export interface LoadedModel {
  * The model router selects among registered providers using capabilities,
  * device report, entitlements, and requested features — never hard-coded ids
  * outside the registry.
+ *
+ * `isAvailable`/`dispose` are optional hooks added in M2: availability lets
+ * callers short-circuit unsupported environments without loading anything,
+ * dispose releases resources held before/without load().
  */
 export interface TTSModelProvider {
-  /** Stable id within the provider registry, e.g. "kokoro-local" (M2). */
+  /** Stable id within the provider registry, e.g. "kokoro-local". */
   id: string;
   kind: ProviderKind;
   capabilities: ProviderCapabilities;
@@ -106,4 +123,31 @@ export interface TTSModelProvider {
   /** Best-effort speed estimate; null when the provider cannot estimate. */
   estimate(ctx: EstimateContext): SpeedEstimate | null;
   load(opts: LoadOptions): Promise<LoadedModel>;
+  isAvailable?(env: InferenceEnvironment): boolean;
+  dispose?(): void;
 }
+
+export type { InferenceEnvironment } from "./env.js";
+export { detectInferenceEnvironment, probeWebGPUAdapter } from "./env.js";
+export { TTS_ERROR_CODES, TtsError, classifyRuntimeError, isTtsError } from "./errors.js";
+export type { TtsErrorCode } from "./errors.js";
+export { getPreferredLocalProvider, getProvider, listProviderIds, registerProvider } from "./registry.js";
+export { KokoroLocalProvider } from "./providers/kokoro/kokoroProvider.js";
+export type { KokoroProviderOptions, WorkerFactory, WorkerHandle } from "./providers/kokoro/kokoroProvider.js";
+export {
+  KOKORO_DEFAULT_LOAD_CONFIG,
+  KOKORO_DTYPE,
+  KOKORO_MODEL_ID,
+  KOKORO_SAMPLE_RATE_HZ,
+} from "./providers/kokoro/config.js";
+export type { KokoroDevice, KokoroDtype, KokoroLoadConfig } from "./providers/kokoro/config.js";
+export {
+  WORKER_PROTOCOL_VERSION,
+  isMainToWorkerMessage,
+} from "./providers/kokoro/protocol.js";
+export type {
+  GenerateRequestPayload,
+  LoadRequestPayload,
+  MainToWorkerMessage,
+  WorkerToMainMessage,
+} from "./providers/kokoro/protocol.js";

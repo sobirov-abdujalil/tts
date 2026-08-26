@@ -11,6 +11,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src"
   },
+  "dependencies": {
+    "@tts/audio": "workspace:*",
+    "@tts/shared": "workspace:*",
+    "kokoro-js": "1.2.1"
+  },
   "devDependencies": {
     "typescript": "^5.9.3"
   }

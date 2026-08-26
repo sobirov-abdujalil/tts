@@ -89,9 +89,11 @@ The router selects a provider from a registry given: requested features (voice, 
 - Runtime: `kokoro-js` (Transformers.js v3 → ONNX Runtime Web).
 - Model: `onnx-community/Kokoro-82M-v1.0-ONNX`. Default dtype **q8 (~86 MB)**; fp32/fp16 variants available behind advanced settings where memory allows. Sample rate 24 kHz mono.
 - Execution preference order:
-  1. **WebGPU** (`device: 'webgpu'`) — validated per-device at runtime; note kokoro-js guidance currently recommends fp32 weights with WebGPU, so we benchmark q8-vs-fp32-on-GPU during M3 and pick per measured RTF.
+  1. **WebGPU** (`device: 'webgpu'`) — offered only after a real adapter probe (`navigator.gpu.requestAdapter()`) succeeds; `navigator.gpu` existing is not proof it works (headless/soft-blocked environments). kokoro-js guidance currently recommends fp32 weights with WebGPU, so we benchmark q8-vs-fp32-on-GPU during M3 and pick per measured RTF.
   2. **WASM** (SIMD; multithreaded when `SharedArrayBuffer` available via cross-origin isolation, else single-threaded).
   3. Optional cloud fallback (only for entitled users, explicit UI consent, M7).
+
+  Each candidate device is attempted on its **own freshly spawned worker**: a failed attempt (e.g. WebGPU session creation without an adapter) terminates its worker before the next attempt starts, so poisoned ORT/backend state can never leak into the WASM retry. Verified empirically — retrying inside the same worker after a failed WebGPU load failed identically even with `device: 'wasm'`.
 - **Execution environment: dedicated Web Worker** (not a Service Worker — ORT's dynamic-import backend loading is restricted in SWs). Protocol: `{type:'load'|'generate'|'cancel'|'release', id, payload}` with streamed progress/chunk messages. Cancellation = cooperative abort flag checked between chunks + worker termination as last resort.
 - **Caching:** Transformers.js caches model files in the browser Cache API. We additionally: request `navigator.storage.persist()`, verify cache hits (no re-download on second visit), and handle corrupted cache by versioned cache-busting re-download.
 - **Memory:** one session at a time; explicit release after idle timeout; chunk buffers transferred to main thread via transferable ArrayBuffers then dereferenced.

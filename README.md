@@ -2,7 +2,7 @@
 
 A production SaaS platform for AI speech generation. Core differentiator: **on-device inference** — when the user's browser supports it, TTS (Kokoro-82M via ONNX Runtime Web / WebGPU + WASM) runs entirely client-side, so user text never reaches our servers. Premium expressive/cloud generation and billing layer on top.
 
-> Status: **M1 — repo & tooling foundation complete** (see `ROADMAP.md`). Implementation proceeds milestone-by-milestone. Next up: M2, local TTS MVP.
+> Status: **M2 — local TTS MVP complete** (see `ROADMAP.md`). The workspace generates speech fully in-browser (Kokoro-82M, WebGPU→WASM fallback) with WAV playback/download; text never leaves the device. Next up: M3, production local inference.
 
 ## Documentation
 

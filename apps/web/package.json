@@ -11,6 +11,9 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@tts/audio": "workspace:*",
+    "@tts/shared": "workspace:*",
+    "@tts/tts-engine": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
